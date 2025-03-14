@@ -49,5 +49,7 @@
 	<string>此应用需要访问您的相机以拍摄照片</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>此应用需要访问您的相册以选择和保存照片</string>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 </dict>
 </plist>
