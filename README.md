@@ -13,7 +13,9 @@ This is a simple yet practical Flutter application designed to add white frames 
 **中文**：
 
 - ✨ 简洁直观的用户界面
-- 🖼️ 可调节白色边框宽度（0-25%）
+- 🖼️ 可调节白色边框宽度（0-100%）
+- 🔄 支持自定义四边不同宽度的边框
+- 🌟 支持圆角边框设置（0-15%）
 - 🔍 长按预览原图功能
 - 💾 一键保存至相册
 - 🚀 优化的性能，支持高分辨率图像处理
@@ -22,7 +24,9 @@ This is a simple yet practical Flutter application designed to add white frames 
 **English**：
 
 - ✨ Clean and intuitive user interface
-- 🖼️ Adjustable white frame width (0-25%)
+- 🖼️ Adjustable white frame width (0-100%)
+- 🔄 Support for custom width on each side (top, right, bottom, left)
+- 🌟 Rounded corner support (0-15%)
 - 🔍 Long press to preview original image
 - 💾 One-tap save to gallery
 - 🚀 Optimized performance for high-resolution images
@@ -35,18 +39,22 @@ This is a simple yet practical Flutter application designed to add white frames 
 1. 点击主界面选择图片
 2. 点击底部工具栏中的"加白"按钮
 3. 使用滑块调整白框宽度
-4. 点击"完成"应用白框效果
-5. 长按图片可预览原图
-6. 点击"保存"将编辑后的照片保存到相册
+4. 选择统一边框或自定义边框模式
+5. 根据需要调整圆角大小
+6. 点击"应用"保存设置
+7. 长按图片可预览原图
+8. 点击"保存"将编辑后的照片保存到相册
 
 **English**：
 
 1. Tap the main screen to select a photo
 2. Tap the "Add Frame" button in the bottom toolbar
 3. Use the slider to adjust the frame width
-4. Tap "Done" to apply the white frame effect
-5. Long press on the image to preview the original
-6. Tap "Save" to store the edited photo to your gallery
+4. Choose between uniform border or custom border mode
+5. Adjust corner radius as needed
+6. Tap "Apply" to save settings
+7. Long press on the image to preview the original
+8. Tap "Save" to store the edited photo to your gallery
 
 ## 项目结构 | Project Structure
 
@@ -100,6 +108,7 @@ lib/
 - 采用响应式设计，适配不同设备尺寸
 - 模块化架构，方便扩展添加新功能
 - 流畅的动画和过渡效果
+- 先进的状态管理，确保编辑操作和设置保持一致性
 
 **English**：
 
@@ -109,6 +118,7 @@ lib/
 - Responsive design for various device sizes
 - Modular architecture for easy extension and adding new features
 - Smooth animations and transitions
+- Advanced state management to ensure consistency in editing operations and settings
 
 ## 未来拓展 | Future Extensions
 
@@ -131,19 +141,21 @@ To add new image editing features:
 **中文**：
 
 - Flutter SDK: >=2.17.0
-- image_picker: ^0.8.6
+- image_picker: ^1.0.4
 - image: ^3.2.0
-- path_provider: ^2.0.11
+- path_provider: ^2.1.1
 - gallery_saver: ^2.3.2
+- flutter_image_compress: ^1.1.3
 - fluttertoast: ^8.1.1
 
 **English**：
 
 - Flutter SDK: >=2.17.0
-- image_picker: ^0.8.6
+- image_picker: ^1.0.4
 - image: ^3.2.0
-- path_provider: ^2.0.11
+- path_provider: ^2.1.1
 - gallery_saver: ^2.3.2
+- flutter_image_compress: ^1.1.3
 - fluttertoast: ^8.1.1
 
 ## 致谢 | Acknowledgements
