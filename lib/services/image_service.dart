@@ -5,6 +5,10 @@ import 'package:image/image.dart' as img;
 import 'package:gallery_saver/gallery_saver.dart';
 import 'package:flutter/foundation.dart';
 import 'dart:async';
+import 'dart:math' as Math;
+import 'package:flutter/material.dart' show Colors;
+import 'package:flutter/rendering.dart'; // 提供Rect和RRect等几何图形类
+import 'package:image_editor/editors/white_frame_editor.dart'; // 导入FrameSettings类
 
 class ImageService {
   // 跟踪临时文件以便清理
@@ -119,6 +123,78 @@ class ImageService {
       completer.complete(image);
     });
     return completer.future;
+  }
+
+  Future<File?> addWhiteFrameAdvanced(
+    File image,
+    FrameSettings settings,
+    {bool isPreview = false,}
+  ) async {
+    try {
+      // 创建临时文件路径
+      final directory = await getTemporaryDirectory();
+      final fileName = '${DateTime.now().millisecondsSinceEpoch}_framed.jpg';
+      final outputPath = '${directory.path}/$fileName';
+      
+      // 使用 Flutter 的 ui 库处理图像
+      final bytes = await image.readAsBytes();
+      final uiImage = await _decodeImageFromList(bytes);
+      final width = uiImage.width.toDouble();
+      final height = uiImage.height.toDouble();
+      
+      // 计算新的图像尺寸
+      final topOffset = height * settings.top;
+      final rightOffset = width * settings.right;
+      final bottomOffset = height * settings.bottom;
+      final leftOffset = width * settings.left;
+      
+      final newWidth = width + leftOffset + rightOffset;
+      final newHeight = height + topOffset + bottomOffset;
+      
+      // 计算圆角半径
+      final cornerRadius = settings.cornerRadius * Math.min(newWidth, newHeight);
+      
+      // 创建绘图记录器
+      final recorder = ui.PictureRecorder();
+      final canvas = ui.Canvas(recorder);
+      
+      // 绘制白色背景和圆角矩形
+      final paint = ui.Paint()..color = Colors.white;
+      final rect = ui.Rect.fromLTWH(0, 0, newWidth, newHeight);
+      
+      final rrect = ui.RRect.fromRectAndRadius(
+        rect,
+        ui.Radius.circular(cornerRadius),
+      );
+      
+      canvas.drawRRect(rrect, paint);
+      
+      // 在中间绘制原始图像
+      final srcRect = ui.Rect.fromLTWH(0, 0, width, height);
+      final dstRect = ui.Rect.fromLTWH(leftOffset, topOffset, width, height);
+      
+      canvas.drawImageRect(
+        uiImage,
+        srcRect,
+        dstRect,
+        paint,
+      );
+      
+      // 完成图像绘制
+      final picture = recorder.endRecording();
+      final img = await picture.toImage(newWidth.round(), newHeight.round());
+      final byteData = await img.toByteData(format: ui.ImageByteFormat.png);
+      final buffer = byteData!.buffer.asUint8List();
+      
+      // 输出到文件
+      final outputFile = File(outputPath);
+      await outputFile.writeAsBytes(buffer);
+      
+      return outputFile;
+    } catch (e) {
+      print('添加白框时出错: $e');
+      return null;
+    }
   }
 }
 

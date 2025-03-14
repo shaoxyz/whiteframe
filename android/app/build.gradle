@@ -33,7 +33,7 @@ android {
 
     defaultConfig {
         applicationId "blgs.webb.jiabai"
-        minSdkVersion 16
+        minSdkVersion flutter.minSdkVersion
         targetSdkVersion 28
         versionCode flutterVersionCode.toInteger()
         versionName flutterVersionName

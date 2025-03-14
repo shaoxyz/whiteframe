@@ -2,13 +2,15 @@ import 'package:flutter/material.dart';
 import 'dart:io';
 import 'package:image_editor/utils/toast_utils.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:flutter_image_compress/flutter_image_compress.dart';
 
 class ImageContainer extends StatefulWidget {
   final File? image;
   final File? originalImage;
   final File? previewImage;
   final bool selected;
-  final Function(File) onImageSelected;
+  final Function(File originalImage, File thumbnailImage) onImageSelected;
 
   const ImageContainer({
     Key? key,
@@ -126,22 +128,31 @@ class _ImageContainerState extends State<ImageContainer> {
 
   void _selectImage(BuildContext context) async {
     try {
-      final image = await getImageFromGallery();
-      if (image != null) {
-        widget.onImageSelected(image);
+      final result = await getImageWithThumbnail();
+      if (result != null) {
+        widget.onImageSelected(result.originalImage, result.thumbnailImage);
       }
     } catch (e) {
       ToastUtils.showErrorToast('选择图片失败: $e');
     }
   }
 
-  Future<File?> getImageFromGallery() async {
+  Future<ImageResult?> getImageWithThumbnail() async {
     try {
       final picker = ImagePicker();
       final pickedFile = await picker.pickImage(source: ImageSource.gallery);
       
       if (pickedFile != null) {
-        return File(pickedFile.path);
+        final originalFile = File(pickedFile.path);
+        
+        // 创建缩略图用于编辑预览
+        final thumbnailFile = await _createThumbnail(originalFile);
+        
+        // 返回包含原图和缩略图的对象
+        return ImageResult(
+          originalImage: originalFile,
+          thumbnailImage: thumbnailFile
+        );
       }
       return null;
     } catch (e) {
@@ -149,43 +160,42 @@ class _ImageContainerState extends State<ImageContainer> {
       return null;
     }
   }
-}
 
-class CheckerboardPainter extends CustomPainter {
-  final double squareSize;
-  final Color color1;
-  final Color color2;
-
-  CheckerboardPainter({
-    required this.squareSize,
-    required this.color1,
-    required this.color2,
-  });
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final Paint paint1 = Paint()..color = color1;
-    final Paint paint2 = Paint()..color = color2;
-
-    int rows = (size.height / squareSize).ceil();
-    int cols = (size.width / squareSize).ceil();
-
-    for (int row = 0; row < rows; row++) {
-      for (int col = 0; col < cols; col++) {
-        final paint = (row + col) % 2 == 0 ? paint1 : paint2;
-        canvas.drawRect(
-          Rect.fromLTWH(
-            col * squareSize,
-            row * squareSize,
-            squareSize,
-            squareSize,
-          ),
-          paint,
+  Future<File> _createThumbnail(File originalImage) async {
+    try {
+      final tempDir = await getTemporaryDirectory();
+      final targetPath = '${tempDir.path}/${DateTime.now().millisecondsSinceEpoch}_thumb.jpg';
+      
+      // 尝试使用 flutter_image_compress
+      try {
+        final result = await FlutterImageCompress.compressAndGetFile(
+          originalImage.path,
+          targetPath,
+          quality: 70,
+          minWidth: 600,
+          minHeight: 600,
         );
+        
+        if (result != null) {
+          return File(result.path);
+        }
+      } catch (e) {
+        print('压缩失败，使用原图作为缩略图: $e');
       }
+      
+      // 如果压缩失败，复制原图作为缩略图
+      return originalImage.copy(targetPath);
+    } catch (e) {
+      print('创建缩略图失败: $e');
+      return originalImage;
     }
   }
+}
 
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+// 用于存储原始图片和缩略图的数据类
+class ImageResult {
+  final File originalImage;
+  final File thumbnailImage;
+  
+  ImageResult({required this.originalImage, required this.thumbnailImage});
 } 

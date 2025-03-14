@@ -1,0 +1,22 @@
+afterEvaluate {
+    def plugins = project.plugins
+    if (plugins.hasPlugin('com.android.library') && !android.hasProperty('namespace')) {
+        def packageName = null
+        
+        // 尝试从AndroidManifest.xml中读取package属性
+        file("src/main/AndroidManifest.xml").withReader { reader ->
+            def manifest = new XmlSlurper().parse(reader)
+            packageName = manifest.@package
+        }
+        
+        if (packageName) {
+            android.namespace = packageName
+            println "Set namespace for ${project.name} to ${packageName}"
+        } else {
+            // 使用项目名生成命名空间
+            packageName = "com.${project.name.replace('-', '.')}"
+            android.namespace = packageName
+            println "Generated namespace for ${project.name} as ${packageName}"
+        }
+    }
+} 

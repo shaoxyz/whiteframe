@@ -1,0 +1,56 @@
+// 已知有命名空间问题的插件列表及其包名
+def pluginNamespaces = [
+    'image_picker_android': 'io.flutter.plugins.imagepicker',
+    'image_cropper': 'com.lykhonis.imagecropper',
+    'flutter_image_compress': 'com.example.flutterimagecompress',
+    'path_provider_android': 'io.flutter.plugins.pathprovider',
+    'fluttertoast': 'io.github.ponnamkarthik.toast.fluttertoast',
+    'share_plus': 'dev.fluttercommunity.plus.share'
+    // 根据需要添加更多问题插件
+]
+
+// 应用到所有子项目
+subprojects { subproject ->
+    subproject.afterEvaluate {
+        if (subproject.plugins.hasPlugin('com.android.library')) {
+            // 修复命名空间问题
+            if (pluginNamespaces.containsKey(subproject.name) && 
+                (!subproject.android.hasProperty('namespace') || subproject.android.namespace == null)) {
+                subproject.android.namespace = pluginNamespaces[subproject.name]
+                println "Fixed namespace for ${subproject.name} to ${subproject.android.namespace}"
+            }
+            
+            // 对所有插件统一Java和Kotlin编译目标版本
+            try {
+                subproject.android.compileOptions {
+                    sourceCompatibility JavaVersion.VERSION_17
+                    targetCompatibility JavaVersion.VERSION_17
+                }
+                
+                // 如果项目使用Kotlin
+                if (subproject.plugins.hasPlugin('kotlin-android') || subproject.hasProperty('kotlin')) {
+                    if (subproject.tasks.findByName('compileReleaseKotlin') != null) {
+                        subproject.tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach {
+                            kotlinOptions {
+                                jvmTarget = '17'
+                            }
+                        }
+                        println "Set Java/Kotlin target compatibility to Java 17 for ${subproject.name}"
+                    }
+                }
+            } catch (Exception e) {
+                println "Warning: Could not set Java/Kotlin compatibility for ${subproject.name}: ${e.message}"
+            }
+            
+            // 强制库使用相同的SDK版本
+            subproject.android {
+                compileSdkVersion 35
+                
+                // 处理lStar资源问题
+                defaultConfig {
+                    targetSdkVersion 35
+                }
+            }
+        }
+    }
+} 

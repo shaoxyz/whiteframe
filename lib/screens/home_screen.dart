@@ -21,32 +21,21 @@ class _HomeScreenState extends State<HomeScreen> {
   File? _originalImage;
   File? _previewImage;
   bool _selected = false;
-  bool _isEditing = false;
+  bool _isPreviewActive = false;
   ImageEditor? _activeEditor;
   
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(_isEditing ? '调整参数' : '加白', 
+        title: Text(_isPreviewActive ? '预览模式' : '加白', 
                   style: TextStyle(fontWeight: FontWeight.w500)),
         centerTitle: true,
         elevation: 0,
         backgroundColor: Theme.of(context).colorScheme.surface,
         foregroundColor: Theme.of(context).colorScheme.onSurface,
-        leading: _isEditing ? IconButton(
-          icon: const Icon(Icons.close),
-          onPressed: () {
-            setState(() {
-              _isEditing = false;
-              _previewImage = null;
-              _activeEditor = null;
-            });
-          },
-          tooltip: '取消',
-        ) : null,
         actions: [
-          if (_isEditing)
+          if (_isPreviewActive)
             IconButton(
               icon: const Icon(Icons.check),
               onPressed: () {
@@ -54,7 +43,7 @@ class _HomeScreenState extends State<HomeScreen> {
               },
               tooltip: '应用',
             ),
-          if (_selected && !_isEditing)
+          if (_selected)
             Padding(
               padding: const EdgeInsets.only(right: 8.0),
               child: IconButton(
@@ -65,6 +54,8 @@ class _HomeScreenState extends State<HomeScreen> {
                     _image = null;
                     _originalImage = null;
                     _previewImage = null;
+                    _isPreviewActive = false;
+                    _activeEditor = null;
                   });
                 },
                 tooltip: '重置',
@@ -109,7 +100,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       selected: _selected,
                       onImageSelected: _handleImageSelected,
                     ),
-                    if (_isEditing && _previewImage != null)
+                    if (_isPreviewActive && _previewImage != null)
                       Positioned(
                         top: 12,
                         left: 12,
@@ -134,49 +125,49 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ),
             
-            if (!_isEditing)
-              Container(
-                height: 56,
-                margin: const EdgeInsets.only(top: 16, bottom: 8),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(16),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.08),
-                      blurRadius: 8,
-                      spreadRadius: 1,
-                      offset: const Offset(0, 1),
-                    ),
-                  ],
-                ),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                  children: [
-                    ..._editors.map((editor) => Expanded(
-                      child: ToolButton(
-                        icon: editor.icon,
-                        label: editor.name,
-                        onTap: () => _handleEditorTap(editor),
-                      ),
-                    )).toList(),
-                    
-                    Container(
-                      height: 24,
-                      width: 1,
-                      color: Colors.grey.withOpacity(0.2),
-                    ),
-                    
-                    Expanded(
-                      child: ToolButton(
-                        icon: Icons.save_alt,
-                        label: '保存',
-                        onTap: _handleSave,
-                      ),
-                    ),
-                  ],
-                ),
+            // 底部工具栏 - 始终显示
+            Container(
+              height: 56,
+              margin: const EdgeInsets.only(top: 16, bottom: 8),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(16),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.08),
+                    blurRadius: 8,
+                    spreadRadius: 1,
+                    offset: const Offset(0, 1),
+                  ),
+                ],
               ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  ..._editors.map((editor) => Expanded(
+                    child: ToolButton(
+                      icon: editor.icon,
+                      label: editor.name,
+                      onTap: () => _handleEditorTap(editor),
+                    ),
+                  )).toList(),
+                  
+                  Container(
+                    height: 24,
+                    width: 1,
+                    color: Colors.grey.withOpacity(0.2),
+                  ),
+                  
+                  Expanded(
+                    child: ToolButton(
+                      icon: Icons.save_alt,
+                      label: '保存',
+                      onTap: _handleSave,
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ],
         ),
       ),
@@ -185,13 +176,8 @@ class _HomeScreenState extends State<HomeScreen> {
   
   void _handleEditorTap(ImageEditor editor) async {
     if (_image != null) {
-      setState(() {
-        _isEditing = true;
-        _activeEditor = editor;
-        _previewImage = null;
-      });
-      
       if (editor is WhiteFrameEditor) {
+        // 启动预览模式
         editor.processImageWithPreview(
           _image!,
           context,
@@ -199,18 +185,39 @@ class _HomeScreenState extends State<HomeScreen> {
             if (mounted) {
               setState(() {
                 _previewImage = previewFile;
+                _isPreviewActive = true;
               });
             }
           },
-          onComplete: null,
+          onCanceled: () {
+            // 只有当用户明确点击取消按钮时才会调用
+            if (mounted) {
+              setState(() {
+                _isPreviewActive = false;
+                _previewImage = null;
+              });
+            }
+          },
+          onComplete: (resultFile) {
+            // 如果用户在编辑器中点击了应用按钮
+            if (mounted) {
+              setState(() {
+                _image = resultFile;
+                _isPreviewActive = false;
+                _previewImage = null;
+              });
+            }
+          },
         );
       } else {
+        setState(() {
+          _activeEditor = editor;
+        });
+        
         File? result = await editor.processImage(_image!, context);
         if (result != null) {
           setState(() {
             _image = result;
-            _isEditing = false;
-            _activeEditor = null;
           });
         }
       }
@@ -224,7 +231,7 @@ class _HomeScreenState extends State<HomeScreen> {
       setState(() {
         _image = _previewImage;
         _previewImage = null;
-        _isEditing = false;
+        _isPreviewActive = false;
         _activeEditor = null;
       });
       
@@ -267,13 +274,11 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
   
-  Future<void> _handleImageSelected(File file) async {
-    _originalImage = file;
-    
-    _previewImage = await _imageService.createPreviewImage(file);
+  Future<void> _handleImageSelected(File originalFile, File thumbnailFile) async {
+    _originalImage = originalFile;
     
     setState(() {
-      _image = file;
+      _image = thumbnailFile;
       _selected = true;
     });
   }
