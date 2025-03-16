@@ -23,12 +23,14 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _selected = false;
   bool _isPreviewActive = false;
   ImageEditor? _activeEditor;
+  FrameSettings? _currentFrameSettings;
+  bool? _currentFrameMode;
   
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(_isPreviewActive ? '预览模式' : '加白', 
+        title: Text('加白', 
                   style: TextStyle(fontWeight: FontWeight.w500)),
         centerTitle: true,
         elevation: 0,
@@ -100,26 +102,6 @@ class _HomeScreenState extends State<HomeScreen> {
                       selected: _selected,
                       onImageSelected: _handleImageSelected,
                     ),
-                    if (_isPreviewActive && _previewImage != null)
-                      Positioned(
-                        top: 12,
-                        left: 12,
-                        child: Container(
-                          padding: EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                          decoration: BoxDecoration(
-                            color: Theme.of(context).colorScheme.primary.withOpacity(0.8),
-                            borderRadius: BorderRadius.circular(20),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(Icons.visibility, color: Colors.white, size: 16),
-                              SizedBox(width: 4),
-                              Text('预览模式', style: TextStyle(color: Colors.white, fontSize: 12)),
-                            ],
-                          ),
-                        ),
-                      ),
                   ],
                 ),
               ),
@@ -177,7 +159,6 @@ class _HomeScreenState extends State<HomeScreen> {
   void _handleEditorTap(ImageEditor editor) async {
     if (_image != null) {
       if (editor is WhiteFrameEditor) {
-        // 启动预览模式
         editor.processImageWithPreview(
           _image!,
           context,
@@ -190,16 +171,16 @@ class _HomeScreenState extends State<HomeScreen> {
             }
           },
           onCanceled: () {
-            // 只有当用户明确点击取消按钮时才会调用
             if (mounted) {
               setState(() {
                 _isPreviewActive = false;
                 _previewImage = null;
+                _currentFrameSettings = null;
+                _currentFrameMode = null;
               });
             }
           },
           onComplete: (resultFile) {
-            // 如果用户在编辑器中点击了应用按钮
             if (mounted) {
               setState(() {
                 _image = resultFile;
@@ -207,6 +188,12 @@ class _HomeScreenState extends State<HomeScreen> {
                 _previewImage = null;
               });
             }
+          },
+          onSettingsSaved: (settings, mode) {
+            setState(() {
+              _currentFrameSettings = settings;
+              _currentFrameMode = mode;
+            });
           },
         );
       } else {
@@ -227,7 +214,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
   
   void _applyEdit() async {
-    if (_activeEditor is WhiteFrameEditor && _previewImage != null) {
+    if (_previewImage != null) {
       setState(() {
         _image = _previewImage;
         _previewImage = null;
@@ -252,22 +239,67 @@ class _HomeScreenState extends State<HomeScreen> {
   
   void _handleSave() async {
     if (_image != null) {
-      final success = await _imageService.saveToGallery(_image!);
-      if (success) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Text('图片已保存到相册'),
-            behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
-            backgroundColor: Theme.of(context).colorScheme.primary,
-            margin: const EdgeInsets.all(20),
-            duration: const Duration(seconds: 2),
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Row(
+            children: [
+              SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                ),
+              ),
+              const SizedBox(width: 12),
+              const Text('正在处理并保存图片...'),
+            ],
           ),
-        );
-      } else {
-        ToastUtils.showErrorToast('保存失败，请检查权限后重试');
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: Theme.of(context).colorScheme.primary,
+          duration: const Duration(seconds: 30),
+          margin: const EdgeInsets.all(20),
+        ),
+      );
+      
+      try {
+        File? finalImage;
+        
+        if (_originalImage != null && _currentFrameSettings != null) {
+          finalImage = await _imageService.addWhiteFrameAdvanced(
+            _originalImage!,
+            _currentFrameSettings!,
+          );
+        } else {
+          finalImage = _image;
+        }
+        
+        if (finalImage != null) {
+          final success = await _imageService.saveToGallery(finalImage);
+          ScaffoldMessenger.of(context).hideCurrentSnackBar();
+          
+          if (success) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: const Text('图片已保存到相册'),
+                behavior: SnackBarBehavior.floating,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                backgroundColor: Theme.of(context).colorScheme.primary,
+                margin: const EdgeInsets.all(20),
+                duration: const Duration(seconds: 2),
+              ),
+            );
+          } else {
+            ToastUtils.showErrorToast('保存失败，请检查权限后重试');
+          }
+        } else {
+          ToastUtils.showErrorToast('处理图片时出错');
+        }
+      } catch (e) {
+        ScaffoldMessenger.of(context).hideCurrentSnackBar();
+        ToastUtils.showErrorToast('保存失败: $e');
       }
     } else {
       ToastUtils.showToast('请先选择图片');

@@ -158,15 +158,15 @@ class WhiteFrameEditor implements ImageEditor {
     BuildContext context, 
     File image, 
     FrameSettings initialSettings,
-    bool initialMode, // 添加初始模式参数
-    Function(FrameSettings, File?, bool, bool) onResult, // 更新回调函数签名，添加模式参数
-    Function(FrameSettings, bool)? onSettingsChanged // 更新回调函数签名，添加模式参数
+    bool initialMode,
+    Function(FrameSettings, File?, bool, bool) onResult,
+    Function(FrameSettings, bool)? onSettingsChanged
   ) {
     return _FrameEditorUI(
       imageService: _imageService,
       image: image,
       initialSettings: initialSettings,
-      initialMode: initialMode, // 传递初始模式
+      initialMode: initialMode,
       onResult: onResult,
       onSettingsChanged: onSettingsChanged,
       onPreviewUpdate: (File previewFile) {
@@ -183,7 +183,8 @@ class WhiteFrameEditor implements ImageEditor {
     BuildContext context,
     Function(File previewFile) onPreview,
     {Function(File resultFile)? onComplete, 
-     Function()? onCanceled}
+     Function()? onCanceled,
+     Function(FrameSettings, bool)? onSettingsSaved} // 添加新的回调参数
   ) async {
     _currentPreviewCallback = onPreview;
     
@@ -236,6 +237,12 @@ class WhiteFrameEditor implements ImageEditor {
               _tempFrameSettings[image.path] = settings;
               _frameEditorModes[image.path] = mode; // 保存使用的模式
               resultImage = result;
+              
+              // 调用新的回调来保存设置
+              if (onSettingsSaved != null) {
+                onSettingsSaved(settings, mode);
+              }
+              
               if (onComplete != null) {
                 onComplete(result);
               }
@@ -249,6 +256,11 @@ class WhiteFrameEditor implements ImageEditor {
             } else {
               // 滑动关闭
               _frameEditorModes[image.path] = mode; // 保存当前模式
+              
+              // 如果用户通过滑动关闭，也保存最后的设置
+              if (onSettingsSaved != null) {
+                onSettingsSaved(_tempFrameSettings[image.path] ?? initialSettings, mode);
+              }
             }
           },
           (currentSettings, mode) {
@@ -294,9 +306,7 @@ class _FrameEditorUIState extends State<_FrameEditorUI> with SingleTickerProvide
   late double _uniformWidth;
   
   bool isProcessing = false;
-  File? previewImage;
   Timer? _debounceTimer;
-  bool showPreview = true;
   late bool useUniformWidth; // 使用 late 关键字延迟初始化
   
   // 用于高级选项的Tab控制器
@@ -347,13 +357,10 @@ class _FrameEditorUIState extends State<_FrameEditorUI> with SingleTickerProvide
     // 如果有初始设置，则显示对应的预览
     if (tempSettings.maxWidth > 0) {
       await _updatePreview(tempSettings);
-    } else {
-      previewImage = widget.image;
     }
     
     setState(() {
       isProcessing = false;
-      showPreview = true;
     });
   }
   
@@ -401,7 +408,6 @@ class _FrameEditorUIState extends State<_FrameEditorUI> with SingleTickerProvide
     
     if (preview != null) {
       setState(() {
-        previewImage = preview;
         isProcessing = false;
       });
       
@@ -439,26 +445,288 @@ class _FrameEditorUIState extends State<_FrameEditorUI> with SingleTickerProvide
     }
   }
   
-  // 创建统一宽度控制器
-  Widget _buildUniformWidthControl() {
+  @override
+  void dispose() {
+    _debounceTimer?.cancel();
+    _tabController.dispose();
+    super.dispose();
+  }
+  
+  @override
+  Widget build(BuildContext context) {
+    return PopScope(
+      canPop: true,
+      onPopInvoked: (didPop) {
+        if (didPop) {
+          widget.onResult(tempSettings, null, false, useUniformWidth);
+        }
+      },
+      child: Container(
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // 顶部拖动条
+            Center(
+              child: Container(
+                margin: const EdgeInsets.only(top: 12, bottom: 8),
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey.shade300,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            
+            // 标题栏和操作按钮
+            _buildHeaderBar(),
+            
+            // 模式选择器（统一/自定义边框）
+            _buildModeSelector(),
+            
+            // 控制面板内容
+            Flexible(
+              child: _buildSettingsPanel(),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+  
+  // 标题栏和操作按钮
+  Widget _buildHeaderBar() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+      decoration: BoxDecoration(
+        border: Border(bottom: BorderSide(color: Colors.grey.shade100)),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.border_outer, color: Theme.of(context).primaryColor, size: 20),
+              const SizedBox(width: 8),
+              const Text(
+                '调整白框',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+          Row(
+            children: [
+              // 取消按钮
+              TextButton(
+                onPressed: isProcessing ? null : () {
+                  widget.onResult(tempSettings, null, true, useUniformWidth);
+                  Navigator.pop(context);
+                },
+                style: TextButton.styleFrom(
+                  foregroundColor: Colors.grey.shade700,
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  visualDensity: VisualDensity.compact,
+                ),
+                child: const Text('取消'),
+              ),
+              const SizedBox(width: 8),
+              // 应用按钮
+              ElevatedButton(
+                onPressed: isProcessing ? null : _applyChanges,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Theme.of(context).primaryColor,
+                  foregroundColor: Colors.white,
+                  elevation: 0,
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  minimumSize: const Size(60, 36),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                ),
+                child: isProcessing 
+                    ? SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                        ),
+                      )
+                    : const Text('应用'),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+  
+  // 模式选择器（统一/自定义边框）
+  Widget _buildModeSelector() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade50,
+        border: Border(bottom: BorderSide(color: Colors.grey.shade200)),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: InkWell(
+              onTap: isProcessing ? null : () {
+                setState(() {
+                  useUniformWidth = true;
+                  tempSettings = FrameSettings.uniform(
+                    _uniformWidth,
+                    cornerRadius: tempSettings.cornerRadius
+                  );
+                });
+                _updatePreview(tempSettings);
+                if (widget.onSettingsChanged != null) {
+                  widget.onSettingsChanged!(tempSettings, true);
+                }
+              },
+              borderRadius: BorderRadius.circular(8),
+              child: Container(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                decoration: BoxDecoration(
+                  color: useUniformWidth ? Theme.of(context).primaryColor.withOpacity(0.1) : Colors.transparent,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      Icons.crop_square,
+                      size: 18,
+                      color: useUniformWidth ? Theme.of(context).primaryColor : Colors.grey.shade700,
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      '统一边框',
+                      style: TextStyle(
+                        fontWeight: useUniformWidth ? FontWeight.w600 : FontWeight.normal,
+                        color: useUniformWidth ? Theme.of(context).primaryColor : Colors.grey.shade800,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: InkWell(
+              onTap: isProcessing ? null : () {
+                setState(() {
+                  useUniformWidth = false;
+                  tempSettings = _customSettings.copyWith(
+                    cornerRadius: tempSettings.cornerRadius
+                  );
+                });
+                _updatePreview(tempSettings);
+                if (widget.onSettingsChanged != null) {
+                  widget.onSettingsChanged!(tempSettings, false);
+                }
+              },
+              borderRadius: BorderRadius.circular(8),
+              child: Container(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                decoration: BoxDecoration(
+                  color: !useUniformWidth ? Theme.of(context).primaryColor.withOpacity(0.1) : Colors.transparent,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      Icons.settings_ethernet_rounded,
+                      size: 18,
+                      color: !useUniformWidth ? Theme.of(context).primaryColor : Colors.grey.shade700,
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      '自定义边框',
+                      style: TextStyle(
+                        fontWeight: !useUniformWidth ? FontWeight.w600 : FontWeight.normal,
+                        color: !useUniformWidth ? Theme.of(context).primaryColor : Colors.grey.shade800,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+  
+  // 设置面板内容
+  Widget _buildSettingsPanel() {
+    return SingleChildScrollView(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // 显示当前编辑模式的设置
+            if (useUniformWidth)
+              _buildUniformWidthControlNew()
+            else
+              _buildCustomEdgesControlNew(),
+            
+            const SizedBox(height: 20),
+            
+            // 圆角控制（两种模式都显示）
+            _buildCornerRadiusControlNew(),
+            
+            const SizedBox(height: 20),
+            
+            // 预设模板（快速选择）
+            _buildPresets(),
+            
+            // 底部安全区域
+            SizedBox(height: MediaQuery.of(context).padding.bottom + 12),
+          ],
+        ),
+      ),
+    );
+  }
+  
+  // 统一边框控制 - 新设计
+  Widget _buildUniformWidthControlNew() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Text(
-              '白框宽度',
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w500,
-                color: Colors.grey.shade800,
-              ),
+            Row(
+              children: [
+                Icon(Icons.crop_free, size: 20, color: Theme.of(context).primaryColor),
+                const SizedBox(width: 8),
+                Text(
+                  '白框宽度',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w500,
+                    color: Colors.grey.shade800,
+                  ),
+                ),
+              ],
             ),
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
               decoration: BoxDecoration(
-                color: Theme.of(context).primaryColor.withOpacity(0.25),
+                color: Theme.of(context).primaryColor.withOpacity(0.12),
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Text(
@@ -466,61 +734,80 @@ class _FrameEditorUIState extends State<_FrameEditorUI> with SingleTickerProvide
                 style: TextStyle(
                   fontWeight: FontWeight.w600,
                   color: Theme.of(context).primaryColor,
+                  fontSize: 14,
                 ),
               ),
             ),
           ],
         ),
         const SizedBox(height: 16),
-        SliderTheme(
-          data: SliderThemeData(
-            trackHeight: 4,
-            activeTrackColor: Theme.of(context).primaryColor,
-            inactiveTrackColor: Colors.grey.shade200,
-            thumbColor: Colors.white,
-            thumbShape: const RoundSliderThumbShape(
-              enabledThumbRadius: 8,
-              elevation: 4,
-            ),
-            overlayColor: Theme.of(context).primaryColor.withOpacity(0.25),
-            overlayShape: const RoundSliderOverlayShape(
-              overlayRadius: 16,
-            ),
-          ),
-          child: Slider(
-            value: _uniformWidth,
-            min: 0,
-            max: 1.0,
-            divisions: 100,
-            onChanged: isProcessing 
-                ? null 
-                : (newValue) {
-                    _uniformWidth = newValue; // 更新统一宽度
-                    final newSettings = FrameSettings.uniform(
-                      newValue, 
-                      cornerRadius: tempSettings.cornerRadius
-                    );
-                    _debouncedPreviewUpdate(newSettings);
-                  },
-          ),
-        ),
-        const SizedBox(height: 4),
         Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Text(
-              '0%',
-              style: TextStyle(
-                fontSize: 12,
-                color: Colors.grey.shade600,
+            IconButton(
+              onPressed: isProcessing || _uniformWidth <= 0 ? null : () {
+                final newValue = (_uniformWidth - 0.01).clamp(0.0, 1.0);
+                _uniformWidth = newValue; 
+                final newSettings = FrameSettings.uniform(
+                  newValue, 
+                  cornerRadius: tempSettings.cornerRadius
+                );
+                _debouncedPreviewUpdate(newSettings);
+              },
+              icon: Icon(Icons.remove_circle, 
+                color: isProcessing || _uniformWidth <= 0 
+                    ? Colors.grey.shade300 
+                    : Theme.of(context).primaryColor),
+              visualDensity: VisualDensity.compact,
+            ),
+            Expanded(
+              child: SliderTheme(
+                data: SliderThemeData(
+                  trackHeight: 4,
+                  activeTrackColor: Theme.of(context).primaryColor,
+                  inactiveTrackColor: Colors.grey.shade200,
+                  thumbColor: Colors.white,
+                  thumbShape: const RoundSliderThumbShape(
+                    enabledThumbRadius: 8,
+                    elevation: 4,
+                  ),
+                  overlayColor: Theme.of(context).primaryColor.withOpacity(0.25),
+                  overlayShape: const RoundSliderOverlayShape(
+                    overlayRadius: 16,
+                  ),
+                ),
+                child: Slider(
+                  value: _uniformWidth,
+                  min: 0,
+                  max: 1.0,
+                  divisions: 100,
+                  onChanged: isProcessing 
+                      ? null 
+                      : (newValue) {
+                          _uniformWidth = newValue; 
+                          final newSettings = FrameSettings.uniform(
+                            newValue, 
+                            cornerRadius: tempSettings.cornerRadius
+                          );
+                          _debouncedPreviewUpdate(newSettings);
+                        },
+                ),
               ),
             ),
-            Text(
-              '100%',
-              style: TextStyle(
-                fontSize: 12,
-                color: Colors.grey.shade600,
-              ),
+            IconButton(
+              onPressed: isProcessing || _uniformWidth >= 1.0 ? null : () {
+                final newValue = (_uniformWidth + 0.01).clamp(0.0, 1.0);
+                _uniformWidth = newValue; 
+                final newSettings = FrameSettings.uniform(
+                  newValue, 
+                  cornerRadius: tempSettings.cornerRadius
+                );
+                _debouncedPreviewUpdate(newSettings);
+              },
+              icon: Icon(Icons.add_circle, 
+                color: isProcessing || _uniformWidth >= 1.0 
+                    ? Colors.grey.shade300 
+                    : Theme.of(context).primaryColor),
+              visualDensity: VisualDensity.compact,
             ),
           ],
         ),
@@ -528,146 +815,202 @@ class _FrameEditorUIState extends State<_FrameEditorUI> with SingleTickerProvide
     );
   }
   
-  // 创建独立边框控件
-  Widget _buildCustomEdgesControl() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          '自定义边框',
-          style: TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.w500,
-            color: Colors.grey.shade800,
-          ),
-        ),
-        const SizedBox(height: 16),
-        
-        // 上边框控制
-        _buildEdgeControl(
-          label: '上边框',
-          value: tempSettings.top,
-          onChanged: (value) {
-            _debouncedPreviewUpdate(tempSettings.copyWith(top: value));
-            // 更新自定义设置
-            _customSettings = tempSettings.copyWith(top: value);
-          },
-        ),
-        
-        // 右边框控制
-        _buildEdgeControl(
-          label: '右边框',
-          value: tempSettings.right,
-          onChanged: (value) {
-            _debouncedPreviewUpdate(tempSettings.copyWith(right: value));
-            // 更新自定义设置
-            _customSettings = tempSettings.copyWith(right: value);
-          },
-        ),
-        
-        // 下边框控制
-        _buildEdgeControl(
-          label: '下边框',
-          value: tempSettings.bottom,
-          onChanged: (value) {
-            _debouncedPreviewUpdate(tempSettings.copyWith(bottom: value));
-            // 更新自定义设置
-            _customSettings = tempSettings.copyWith(bottom: value);
-          },
-        ),
-        
-        // 左边框控制
-        _buildEdgeControl(
-          label: '左边框',
-          value: tempSettings.left,
-          onChanged: (value) {
-            _debouncedPreviewUpdate(tempSettings.copyWith(left: value));
-            // 更新自定义设置
-            _customSettings = tempSettings.copyWith(left: value);
-          },
-        ),
-      ],
-    );
-  }
-  
-  // 创建单个边框宽度控制器
-  Widget _buildEdgeControl({
-    required String label,
-    required double value,
-    required Function(double) onChanged,
-  }) {
+  // 自定义边框控制 - 新设计
+  Widget _buildCustomEdgesControlNew() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
+            Icon(Icons.settings_ethernet_rounded, size: 20, color: Theme.of(context).primaryColor),
+            const SizedBox(width: 8),
             Text(
-              label,
-              style: TextStyle(
-                fontSize: 14,
-                color: Colors.grey.shade700,
-              ),
-            ),
-            Text(
-              '${(value * 100).round()}%',
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w500,
-                color: Theme.of(context).primaryColor,
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 8),
-        SliderTheme(
-          data: SliderThemeData(
-            trackHeight: 3,
-            activeTrackColor: Theme.of(context).primaryColor,
-            inactiveTrackColor: Colors.grey.shade200,
-            thumbColor: Colors.white,
-            thumbShape: const RoundSliderThumbShape(
-              enabledThumbRadius: 7,
-              elevation: 3,
-            ),
-            overlayColor: Theme.of(context).primaryColor.withOpacity(0.2),
-            overlayShape: const RoundSliderOverlayShape(
-              overlayRadius: 14,
-            ),
-          ),
-          child: Slider(
-            value: value,
-            min: 0,
-            max: 1.0,
-            divisions: 100,
-            onChanged: isProcessing ? null : onChanged,
-          ),
-        ),
-        const SizedBox(height: 12),
-      ],
-    );
-  }
-  
-  // 创建圆角控制器
-  Widget _buildCornerRadiusControl() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text(
-              '圆角大小',
+              '自定义边框',
               style: TextStyle(
                 fontSize: 16,
                 fontWeight: FontWeight.w500,
                 color: Colors.grey.shade800,
               ),
             ),
+          ],
+        ),
+        const SizedBox(height: 16),
+        
+        // 使用网格布局显示四个边框设置
+        Container(
+          decoration: BoxDecoration(
+            color: Colors.grey.shade50,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: Colors.grey.shade200, width: 1),
+          ),
+          child: Column(
+            children: [
+              // 上边框控制
+              _buildEdgeControlNew(
+                label: '上边框',
+                icon: Icons.border_top,
+                value: tempSettings.top,
+                onChanged: (value) {
+                  _debouncedPreviewUpdate(tempSettings.copyWith(top: value));
+                  _customSettings = tempSettings.copyWith(top: value);
+                },
+              ),
+              
+              Divider(height: 1, thickness: 1, color: Colors.grey.shade200),
+              
+              // 中间一行显示左右边框
+              IntrinsicHeight(
+                child: Row(
+                  children: [
+                    // 左边框控制
+                    Expanded(
+                      child: _buildEdgeControlNew(
+                        label: '左边框',
+                        icon: Icons.border_left,
+                        value: tempSettings.left,
+                        onChanged: (value) {
+                          _debouncedPreviewUpdate(tempSettings.copyWith(left: value));
+                          _customSettings = tempSettings.copyWith(left: value);
+                        },
+                      ),
+                    ),
+                    
+                    VerticalDivider(width: 1, thickness: 1, color: Colors.grey.shade200),
+                    
+                    // 右边框控制
+                    Expanded(
+                      child: _buildEdgeControlNew(
+                        label: '右边框',
+                        icon: Icons.border_right,
+                        value: tempSettings.right,
+                        onChanged: (value) {
+                          _debouncedPreviewUpdate(tempSettings.copyWith(right: value));
+                          _customSettings = tempSettings.copyWith(right: value);
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              
+              Divider(height: 1, thickness: 1, color: Colors.grey.shade200),
+              
+              // 下边框控制
+              _buildEdgeControlNew(
+                label: '下边框',
+                icon: Icons.border_bottom,
+                value: tempSettings.bottom,
+                onChanged: (value) {
+                  _debouncedPreviewUpdate(tempSettings.copyWith(bottom: value));
+                  _customSettings = tempSettings.copyWith(bottom: value);
+                },
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+  
+  // 单个边框宽度控制 - 新设计
+  Widget _buildEdgeControlNew({
+    required String label,
+    required IconData icon,
+    required double value,
+    required Function(double) onChanged,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      child: Row(
+        children: [
+          Icon(icon, size: 18, color: Colors.grey.shade700),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: Colors.grey.shade800,
+                  ),
+                ),
+                Row(
+                  children: [
+                    Expanded(
+                      child: SliderTheme(
+                        data: SliderThemeData(
+                          trackHeight: 3,
+                          activeTrackColor: Theme.of(context).primaryColor,
+                          inactiveTrackColor: Colors.grey.shade200,
+                          thumbColor: Colors.white,
+                          thumbShape: const RoundSliderThumbShape(
+                            enabledThumbRadius: 6,
+                            elevation: 2,
+                          ),
+                          overlayColor: Theme.of(context).primaryColor.withOpacity(0.2),
+                          overlayShape: const RoundSliderOverlayShape(
+                            overlayRadius: 12,
+                          ),
+                        ),
+                        child: Slider(
+                          value: value,
+                          min: 0,
+                          max: 1.0,
+                          divisions: 100,
+                          onChanged: isProcessing ? null : onChanged,
+                        ),
+                      ),
+                    ),
+                    Container(
+                      width: 40,
+                      alignment: Alignment.center,
+                      child: Text(
+                        '${(value * 100).round()}%',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
+                          color: Theme.of(context).primaryColor,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+  
+  // 圆角控制 - 新设计
+  Widget _buildCornerRadiusControlNew() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.rounded_corner, size: 20, color: Theme.of(context).primaryColor),
+                const SizedBox(width: 8),
+                Text(
+                  '圆角大小',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w500,
+                    color: Colors.grey.shade800,
+                  ),
+                ),
+              ],
+            ),
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
               decoration: BoxDecoration(
-                color: Theme.of(context).primaryColor.withOpacity(0.25),
+                color: Theme.of(context).primaryColor.withOpacity(0.12),
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Text(
@@ -675,12 +1018,31 @@ class _FrameEditorUIState extends State<_FrameEditorUI> with SingleTickerProvide
                 style: TextStyle(
                   fontWeight: FontWeight.w600,
                   color: Theme.of(context).primaryColor,
+                  fontSize: 14,
                 ),
               ),
             ),
           ],
         ),
-        const SizedBox(height: 16),
+        const SizedBox(height: 12),
+        
+        // 预设圆角按钮
+        SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(
+            children: [
+              _buildCornerPresetButton(0.0, '无圆角'),
+              _buildCornerPresetButton(0.03, '小'),
+              _buildCornerPresetButton(0.06, '中'),
+              _buildCornerPresetButton(0.09, '大'),
+              _buildCornerPresetButton(0.12, '特大'),
+            ],
+          ),
+        ),
+        
+        const SizedBox(height: 12),
+        
+        // 滑块控制
         SliderTheme(
           data: SliderThemeData(
             trackHeight: 4,
@@ -699,7 +1061,7 @@ class _FrameEditorUIState extends State<_FrameEditorUI> with SingleTickerProvide
           child: Slider(
             value: tempSettings.cornerRadius,
             min: 0,
-            max: 0.15, // 圆角最大值设为15%
+            max: 0.15,
             divisions: 15,
             onChanged: isProcessing 
                 ? null 
@@ -708,7 +1070,7 @@ class _FrameEditorUIState extends State<_FrameEditorUI> with SingleTickerProvide
                     
                     // 同时更新另一种模式的圆角
                     if (useUniformWidth) {
-                      _uniformWidth = _uniformWidth; // 保持不变
+                      // 保持不变
                     } else {
                       _customSettings = _customSettings.copyWith(cornerRadius: newValue);
                     }
@@ -717,23 +1079,105 @@ class _FrameEditorUIState extends State<_FrameEditorUI> with SingleTickerProvide
                   },
           ),
         ),
-        const SizedBox(height: 4),
+      ],
+    );
+  }
+  
+  // 圆角预设按钮
+  Widget _buildCornerPresetButton(double value, String label) {
+    final isSelected = (tempSettings.cornerRadius * 100).round() == (value * 100).round();
+    
+    return Padding(
+      padding: const EdgeInsets.only(right: 8),
+      child: InkWell(
+        onTap: isProcessing ? null : () {
+          final newSettings = tempSettings.copyWith(cornerRadius: value);
+          
+          // 同时更新另一种模式的圆角
+          if (useUniformWidth) {
+            // 保持宽度不变
+          } else {
+            _customSettings = _customSettings.copyWith(cornerRadius: value);
+          }
+          
+          _debouncedPreviewUpdate(newSettings);
+        },
+        borderRadius: BorderRadius.circular(8),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            color: isSelected 
+                ? Theme.of(context).primaryColor 
+                : Colors.grey.shade100,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(
+              color: isSelected 
+                  ? Theme.of(context).primaryColor 
+                  : Colors.grey.shade300,
+            ),
+          ),
+          child: Text(
+            label,
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+              color: isSelected ? Colors.white : Colors.grey.shade800,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+  
+  // 添加预设模板
+  Widget _buildPresets() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
         Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
+            Icon(Icons.bookmarks_outlined, size: 20, color: Theme.of(context).primaryColor),
+            const SizedBox(width: 8),
             Text(
-              '0%',
+              '快速预设',
               style: TextStyle(
-                fontSize: 12,
-                color: Colors.grey.shade600,
+                fontSize: 16,
+                fontWeight: FontWeight.w500,
+                color: Colors.grey.shade800,
               ),
             ),
-            Text(
-              '15%',
-              style: TextStyle(
-                fontSize: 12,
-                color: Colors.grey.shade600,
-              ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        
+        // 预设模板网格
+        GridView.count(
+          crossAxisCount: 4,
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          mainAxisSpacing: 10,
+          crossAxisSpacing: 10,
+          childAspectRatio: 0.85, // 调整宽高比
+          children: [
+            _buildPresetItem(
+              '标准',
+              FrameSettings.uniform(0.08, cornerRadius: 0),
+              true, // 统一边框模式
+            ),
+            _buildPresetItem(
+              '拍立得',
+              FrameSettings(top: 0.08, right: 0.08, bottom: 0.25, left: 0.08, cornerRadius: 0),
+              false, // 自定义边框模式
+            ),
+            _buildPresetItem(
+              '圆角',
+              FrameSettings.uniform(0.12, cornerRadius: 0.06),
+              true, // 统一边框模式
+            ),
+            _buildPresetItem(
+              '窄边框',
+              FrameSettings.uniform(0.04, cornerRadius: 0.02),
+              true, // 统一边框模式
             ),
           ],
         ),
@@ -741,226 +1185,71 @@ class _FrameEditorUIState extends State<_FrameEditorUI> with SingleTickerProvide
     );
   }
   
-  @override
-  void dispose() {
-    _debounceTimer?.cancel();
-    _tabController.dispose();
-    super.dispose();
-  }
-  
-  @override
-  Widget build(BuildContext context) {
-    return PopScope(
-      canPop: true,
-      onPopInvoked: (didPop) {
-        if (didPop) {
-          widget.onResult(tempSettings, null, false, useUniformWidth);
+  // 单个预设模板项
+  Widget _buildPresetItem(String name, FrameSettings settings, bool mode) {
+    return InkWell(
+      onTap: isProcessing ? null : () {
+        setState(() {
+          useUniformWidth = mode;
+          tempSettings = settings;
+          
+          // 同时更新对应模式的设置
+          if (mode) {
+            _uniformWidth = settings.top;
+          } else {
+            _customSettings = settings;
+          }
+        });
+        _updatePreview(settings);
+        if (widget.onSettingsChanged != null) {
+          widget.onSettingsChanged!(settings, mode);
         }
       },
+      borderRadius: BorderRadius.circular(8),
       child: Container(
-        height: MediaQuery.of(context).size.height * 0.45,
-        decoration: const BoxDecoration(
+        decoration: BoxDecoration(
           color: Colors.white,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: Colors.grey.shade200),
         ),
         child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Center(
-              child: Container(
-                margin: const EdgeInsets.only(top: 12, bottom: 8),
-                width: 40,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: Colors.grey.shade300,
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
-            ),
-            
-            if (showPreview && previewImage != null)
-              Container(
-                height: 120,
-                margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-                decoration: BoxDecoration(
-                  color: Colors.grey.shade100,
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(8),
-                  child: Image.file(
-                    previewImage!,
-                    fit: BoxFit.contain,
-                  ),
-                ),
-              ),
-            
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+              width: 50,
+              height: 50,
+              margin: const EdgeInsets.only(bottom: 4),
               decoration: BoxDecoration(
-                border: Border(
-                  bottom: BorderSide(color: Colors.grey.shade100, width: 1),
+                color: Colors.grey.shade100,
+                borderRadius: BorderRadius.circular(settings.cornerRadius * 24),
+                border: Border.all(
+                  color: Theme.of(context).primaryColor,
+                  width: 2,
                 ),
               ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text(
-                    '调整白框',
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w600,
+              child: mode
+                ? Center(
+                    child: Icon(
+                      Icons.crop_square,
+                      color: Theme.of(context).primaryColor.withOpacity(0.7),
+                      size: 30,
+                    ),
+                  )
+                : Center(
+                    child: Icon(
+                      Icons.settings_ethernet_rounded,
+                      color: Theme.of(context).primaryColor.withOpacity(0.7),
+                      size: 22,
                     ),
                   ),
-                  Row(
-                    children: [
-                      TextButton(
-                        onPressed: isProcessing ? null : () {
-                          widget.onResult(tempSettings, null, true, useUniformWidth);
-                          Navigator.pop(context);
-                        },
-                        style: TextButton.styleFrom(
-                          foregroundColor: Colors.grey.shade700,
-                        ),
-                        child: const Text('取消'),
-                      ),
-                      const SizedBox(width: 8),
-                      ElevatedButton(
-                        onPressed: isProcessing ? null : _applyChanges,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Theme.of(context).primaryColor,
-                          foregroundColor: Colors.white,
-                          elevation: 0,
-                          padding: const EdgeInsets.symmetric(horizontal: 16),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                        ),
-                        child: isProcessing 
-                            ? SizedBox(
-                                width: 20,
-                                height: 20,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                                ),
-                              )
-                            : const Text('应用'),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
             ),
-            
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-              decoration: BoxDecoration(
-                color: Colors.grey.shade50,
-                border: Border(
-                  bottom: BorderSide(color: Colors.grey.shade200, width: 1),
-                ),
+            Text(
+              name,
+              style: TextStyle(
+                fontSize: 12,
+                color: Colors.grey.shade800,
               ),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Row(
-                      children: [
-                        Radio<bool>(
-                          value: true,
-                          groupValue: useUniformWidth,
-                          onChanged: isProcessing ? null : (value) {
-                            setState(() {
-                              useUniformWidth = true;
-                              tempSettings = FrameSettings.uniform(
-                                _uniformWidth,
-                                cornerRadius: tempSettings.cornerRadius
-                              );
-                            });
-                            _updatePreview(tempSettings);
-                            if (widget.onSettingsChanged != null) {
-                              widget.onSettingsChanged!(tempSettings, true);
-                            }
-                          },
-                          activeColor: Theme.of(context).primaryColor,
-                        ),
-                        const Text('统一边框'),
-                      ],
-                    ),
-                  ),
-                  Expanded(
-                    child: Row(
-                      children: [
-                        Radio<bool>(
-                          value: false,
-                          groupValue: useUniformWidth,
-                          onChanged: isProcessing ? null : (value) {
-                            setState(() {
-                              useUniformWidth = false;
-                              tempSettings = _customSettings.copyWith(
-                                cornerRadius: tempSettings.cornerRadius
-                              );
-                            });
-                            _updatePreview(tempSettings);
-                            if (widget.onSettingsChanged != null) {
-                              widget.onSettingsChanged!(tempSettings, false);
-                            }
-                          },
-                          activeColor: Theme.of(context).primaryColor,
-                        ),
-                        const Text('自定义边框'),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            
-            Expanded(
-              child: SingleChildScrollView(
-                child: Padding(
-                  padding: const EdgeInsets.all(20),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      if (useUniformWidth)
-                        _buildUniformWidthControl()
-                      else
-                        _buildCustomEdgesControl(),
-                      
-                      const SizedBox(height: 24),
-                      
-                      _buildCornerRadiusControl(),
-                      
-                      const SizedBox(height: 24),
-                      
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Text(
-                            '实时预览',
-                            style: TextStyle(
-                              fontSize: 14,
-                              color: Colors.grey.shade800,
-                            ),
-                          ),
-                          Switch(
-                            value: showPreview,
-                            onChanged: (value) {
-                              setState(() {
-                                showPreview = value;
-                              });
-                              if (value && !isProcessing) {
-                                _updatePreview(tempSettings);
-                              }
-                            },
-                            activeColor: Theme.of(context).primaryColor,
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-              ),
+              textAlign: TextAlign.center,
             ),
           ],
         ),
