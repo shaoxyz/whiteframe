@@ -273,6 +273,26 @@ class WhiteFrameEditor implements ImageEditor {
     
     return resultImage;
   }
+
+  /// 为分屏编辑模式生成预览
+  Future<void> generatePreview(
+    File image, 
+    FrameSettings settings,
+    Function(File) onPreview,
+  ) async {
+    File? previewFile = await _imageService.createPreviewImage(image);
+    if (previewFile != null) {
+      File? preview = await _imageService.addWhiteFrameAdvanced(
+        previewFile, 
+        settings,
+        isPreview: true
+      );
+      
+      if (preview != null) {
+        onPreview(preview);
+      }
+    }
+  }
 }
 
 // 更新StatefulWidget以支持圆角和独立边框宽度

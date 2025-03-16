@@ -7,6 +7,7 @@ import 'package:image_editor/utils/toast_utils.dart';
 import 'package:image_editor/widgets/tool_button.dart';
 import 'package:image_editor/widgets/image_container.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:image_editor/screens/split_screen_editor.dart';
 
 class HomeScreen extends StatefulWidget {
   @override
@@ -159,43 +160,28 @@ class _HomeScreenState extends State<HomeScreen> {
   void _handleEditorTap(ImageEditor editor) async {
     if (_image != null) {
       if (editor is WhiteFrameEditor) {
-        editor.processImageWithPreview(
-          _image!,
+        final result = await Navigator.push(
           context,
-          (previewFile) {
-            if (mounted) {
-              setState(() {
-                _previewImage = previewFile;
-                _isPreviewActive = true;
-              });
-            }
-          },
-          onCanceled: () {
-            if (mounted) {
-              setState(() {
-                _isPreviewActive = false;
-                _previewImage = null;
-                _currentFrameSettings = null;
-                _currentFrameMode = null;
-              });
-            }
-          },
-          onComplete: (resultFile) {
-            if (mounted) {
-              setState(() {
-                _image = resultFile;
-                _isPreviewActive = false;
-                _previewImage = null;
-              });
-            }
-          },
-          onSettingsSaved: (settings, mode) {
-            setState(() {
-              _currentFrameSettings = settings;
-              _currentFrameMode = mode;
-            });
-          },
+          MaterialPageRoute(
+            builder: (context) => SplitScreenEditor(
+              editor: editor,
+              image: _image!,
+              originalImage: _originalImage,
+              initialSettings: _currentFrameSettings,
+              initialMode: _currentFrameMode ?? true,
+            ),
+          ),
         );
+        
+        if (result != null) {
+          setState(() {
+            if (result.image != null) {
+              _image = result.image;
+            }
+            _currentFrameSettings = result.settings;
+            _currentFrameMode = result.mode;
+          });
+        }
       } else {
         setState(() {
           _activeEditor = editor;
